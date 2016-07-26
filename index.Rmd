@@ -5,26 +5,107 @@ date: "July 25, 2016"
 output: html_document
 ---
 
-```{r setup, include=FALSE}
-knitr::opts_chunk$set(echo = TRUE)
+
+### Machine Learning Project
+Using devices such as Jawbone Up, Nike FuelBand, and Fitbit it is now possible to collect a large amount of data about personal activity relatively inexpensively. These type of devices are part of the quantified self movement – a group of enthusiasts who take measurements about themselves regularly to improve their health, to find patterns in their behavior, or because they are tech geeks. One thing that people regularly do is quantify how much of a particular activity they do, but they rarely quantify how well they do it. In this project, your goal will be to use data from accelerometers on the belt, forearm, arm, and dumbell of 6 participants. They were asked to perform barbell lifts correctly and incorrectly in 5 different ways. More information is available from the website here: <http://groupware.les.inf.puc-rio.br/har> (see the section on the Weight Lifting Exercise Dataset).
+
+## Data
+
+The training data for this project are available here:
+
+<https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv>
+
+The test data are available here:
+
+<https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv>
+
+The data for this project come from this source: <http://groupware.les.inf.puc-rio.br/har>. If you use the document you create for this class for any purpose please cite them as they have been very generous in allowing their data to be used for this kind of assignment.
+
+## Preprocessing
+I downloaded the above data ans saved them as "MLprojtrain.csv" and "MLprojtest.csv," and then load them into R.
+```{r}
+setwd("~/Dropbox/Coursera")
+training<-read.csv("MLprojtrain.csv")
+testing<-read.csv("MLprojtest.csv")
+dim(testing);dim(training)
+```
+As indicated above, the testing csv is too small to be used a s a traditional testing set. Thus we partition the training set into a training set and a "testing" set which we will call "validation."
+```{r,message=FALSE}
+set.seed(2322)
+library(caret)
+inTrain<-createDataPartition(training$classe,p=0.6,list=F)
+validation<-training[-inTrain,]
+training<-training[inTrain,]
+```
+A quick examination of the data set reveals that there are many columns which are virtually empty. I have shown only the 13-18th column summaries for brevity, but many other columns are similar. 
+```{r}
+summary(training[,13:18])
+```
+Here we construct a logical vector which indicates those columns which are virtually empty.
+```{r}
+x<-rep(0,160)
+for(i in 1:160){
+      f<-training[,i]==""
+      n<-sum(f, na.rm=T)
+      if(n<300){x[i]=TRUE}
+}
+x<-as.logical(x)
+```
+Additionally many columns contain nas and we remove those here, and subset the training set based on the logical vector
+```{r, warning=FALSE}
+for(i in 1:160){if(sum(is.na(training[,i]))>100){x[i]=F}}
+trutrain<-training[x]
+```
+Further analysis of the trutrain data set reveals that first 7 columns are lables for each measurement. I remove these and finally have a tidy data set to perform machine learning algorithms on.
+```{r}
+z<-rep(1,60)
+for(i in 1:7){z[i]=0}
+z<-as.logical(z)
+trutrain<-trutrain[z]
+```
+## Initial Analysis of Data Shape
+
+A quick look at the trutrain data set reveals 52 variables to base our prediction on.
+```{r}
+names(trutrain)
+```
+Let's take a quick look at how the data is shaped. Here is a feature plot examining some of the variables.
+```{r}
+featurePlot(x = trutrain[,c("roll_belt","pitch_belt","yaw_belt","total_accel_belt")],y = trutrain$classe,plot = "pairs")
 ```
 
-## R Markdown
+I performed many plots like this to try to determine which variables to include in the machine learning and even performed princaple component analysis. Yet, none of these approaches seemed to simplify the situation. 
 
-This is an R Markdown document. Markdown is a simple formatting syntax for authoring HTML, PDF, and MS Word documents. For more details on using R Markdown see <http://rmarkdown.rstudio.com>.
-
-When you click the **Knit** button a document will be generated that includes both content as well as the output of any embedded R code chunks within the document. You can embed an R code chunk like this:
-
-```{r cars}
-summary(cars)
+## A First Attempt to Predict Classe
+As a first try I created an LDA model and a model and a tree model. As you can see below, the lda model had an acuracy of 0.6995 and the tree model had an acuraccy of 0.5282. 
+```{r, warning=FALSE,message=FALSE}
+modla<-train(classe~., data=trutrain,method="lda")
+confusionMatrix(validation$classe,predict(modla,validation))
+modFit<-train(classe~.,method="rpart",tuneLength=5, data= trutrain)
+library(rattle)
+fancyRpartPlot(modFit$finalModel)
+confusionMatrix(validation$classe,predict(modFit,validation))
 ```
+In addition, I attempted to combine these two prediction models, but results were not much better.
+```{r}
+pred1<-predict(modFit,validation)
+pred2<-predict(modla, validation)
+predDF<-data.frame(pred1,pred2,classe=validation$classe)
 
-## Including Plots
-
-You can also embed plots, for example:
-
-```{r pressure, echo=FALSE}
-plot(pressure)
+combModFit<-train(classe~.,method="rpart", tuneLength=10,data=predDF)
+confusionMatrix(validation$classe,predict(combModFit,predDF))
 ```
+## Final Analysis with Random Forests
 
-Note that the `echo = FALSE` parameter was added to the code chunk to prevent printing of the R code that generated the plot.
+For my next attempt, I modeled with random forests.
+```{r, warning=FALSE,message=FALSE}
+library(randomForest)
+rfModel <- randomForest(classe ~ ., data = trutrain, importance = TRUE, ntrees = 10)
+confusionMatrix(validation$classe,predict(rfModel,validation))
+```
+As you can see above, the random forest model acuratly predicted the classe on the validation set with 0.9935 acuracy.
+
+Finally we make our predictions for the test set based on the random forest model. 
+```{r}
+predict(rfModel,testing)
+```
