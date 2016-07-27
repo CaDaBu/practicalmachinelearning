@@ -2,7 +2,9 @@
 title: "Practical Machine Learning Course Project"
 author: "C. Davis Buenger"
 date: "July 25, 2016"
-output: html_document
+output: 
+  html_document: 
+    keep_md: yes
 ---
 
 
